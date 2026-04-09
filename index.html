@@ -5,24 +5,35 @@
   <title>Daily News Brief</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { font-family: Arial, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 12px; }
-    input { width: 100%; padding: 12px; font-size: 16px; }
-    button { padding: 12px 16px; font-size: 16px; margin-top: 10px; cursor: pointer; }
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 12px; color:#111; }
+    h1 { margin-bottom: 6px; }
+    p { margin-top: 0; color:#444; }
+    .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+    input { flex: 1; padding: 12px; font-size: 16px; }
+    select { padding: 12px; font-size: 16px; }
+    button { padding: 12px 16px; font-size: 16px; cursor: pointer; }
     .meta { color: #666; margin: 12px 0 18px; }
-    .item { padding: 12px 0; border-bottom: 1px solid #eee; }
-    .source { font-size: 12px; color: #999; }
-    a { text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .row { display: flex; gap: 10px; align-items: center; }
-    .row input { flex: 1; }
+    .item { padding: 14px 0; border-bottom: 1px solid #eee; }
+    .title a { color:#111; font-weight: 700; font-size: 16px; text-decoration: none; }
+    .title a:hover { text-decoration: underline; }
+    .sub { margin-top: 6px; font-size: 13px; color:#777; }
+    .desc { margin-top: 8px; color:#333; line-height: 1.35; }
+    .pill { display:inline-block; padding:2px 8px; border:1px solid #ddd; border-radius:999px; font-size:12px; color:#555; margin-right:6px; }
+    .err { color:#b00020; font-weight:600; }
   </style>
 </head>
+
 <body>
   <h1>Daily News Brief</h1>
-  <p>Type keywords and get today’s headlines. Share the link with anyone.</p>
+  <p>Type keywords and get real headlines + a short snippet. Share the link with anyone.</p>
 
   <div class="row">
     <input id="q" placeholder="e.g. housing london rent" />
+    <select id="when">
+      <option value="1d">Last 24h</option>
+      <option value="7d">Last 7 days</option>
+      <option value="30d">Last 30 days</option>
+    </select>
     <button onclick="run()">Get brief</button>
   </div>
 
@@ -30,52 +41,91 @@
   <div id="results"></div>
 
   <script>
-    function googleNewsRss(query) {
-      const q = encodeURIComponent(query.trim());
+    // Google News RSS with time filter
+    function googleNewsRss(query, when) {
+      const q = encodeURIComponent(`${query.trim()} when:${when}`);
       return `https://news.google.com/rss/search?q=${q}&hl=en-GB&gl=GB&ceid=GB:en`;
+    }
+
+    function stripHtml(html) {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = html || "";
+      return (tmp.textContent || tmp.innerText || "").trim();
+    }
+
+    // Google News titles often look like: "Headline - Source"
+    function splitTitleAndSource(title) {
+      const parts = (title || "").split(" - ");
+      if (parts.length >= 2) {
+        const source = parts.pop();
+        const cleanTitle = parts.join(" - ");
+        return { cleanTitle, source };
+      }
+      return { cleanTitle: title || "", source: "" };
     }
 
     async function run() {
       const q = document.getElementById("q").value.trim();
+      const when = document.getElementById("when").value;
       if (!q) return;
 
-      document.getElementById("meta").textContent = "Loading headlines...";
-      document.getElementById("results").innerHTML = "";
+      const meta = document.getElementById("meta");
+      const results = document.getElementById("results");
 
-      const rssUrl = googleNewsRss(q);
+      meta.textContent = "Loading news...";
+      results.innerHTML = "";
+
+      const rssUrl = googleNewsRss(q, when);
       const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
 
-      const res = await fetch(apiUrl);
-      const data = await res.json();
-
-      if (!data.items) {
-        document.getElementById("meta").textContent =
-          "Could not load headlines. Try again in a minute.";
+      let data;
+      try {
+        const res = await fetch(apiUrl);
+        data = await res.json();
+      } catch (e) {
+        meta.innerHTML = `<span class="err">Couldn’t load news (network error). Try again.</span>`;
         return;
       }
 
-      const shareLink = `${location.origin + location.pathname}?q=${encodeURIComponent(q)}`;
+      if (!data || !data.items) {
+        meta.innerHTML = `<span class="err">Couldn’t load headlines (RSS service rate limit). Try again in 1–2 minutes.</span>`;
+        return;
+      }
 
-      document.getElementById("meta").innerHTML =
-        `Found <b>${data.items.length}</b> headlines<br>
-         Share link: <a hrefLink}${shareLink}</a>`;
+      const shareLink = `${location.origin + location.pathname}?q=${encodeURIComponent(q)}&when=${encodeURIComponent(when)}`;
 
-      const container = document.getElementById("results");
-      data.items.slice(0, 20).forEach(item => {
+      meta.innerHTML =
+        `Found <b>${data.items.length}</b> results • <span class="pill">${when}</span><br>
+         Share link: <a href="${shareLink}nk}</a>`;
+
+      data.items.slice(0, 25).forEach(item => {
+        const { cleanTitle, source } = splitTitleAndSource(item.title);
+        const desc = stripHtml(item.description);
+        const pub = item.pubDate ? new Date(item.pubDate).toLocaleString() : "";
+
         const div = document.createElement("div");
         div.className = "item";
         div.innerHTML = `
-          <div class="source">${new Date(item.pubDate).toLocaleString()}</div>
-          <div><a href="${item.link}" target="_blank       `;
-        container.appendChild(div);
+          <div class="title">
+            <a href="${item.link}" target="_blank" rel="noopener      </div>
+          <div class="sub">
+            ${source ? `<span class="pill">${source}</span>` : ""}
+            ${pub ? `Published: ${pub}` : ""}
+          </div>
+          ${desc ? `<div class="desc">${desc}</div>` : ""}
+        `;
+        results.appendChild(div);
       });
     }
 
+    // Auto-run from shared links
     const params = new URLSearchParams(location.search);
     if (params.get("q")) {
       document.getElementById("q").value = params.get("q");
+      if (params.get("when")) document.getElementById("when").value = params.get("when");
       run();
     }
   </script>
 </body>
 </html>
+``
