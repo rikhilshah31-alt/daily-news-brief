@@ -1,0 +1,81 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Daily News Brief</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 12px; }
+    input { width: 100%; padding: 12px; font-size: 16px; }
+    button { padding: 12px 16px; font-size: 16px; margin-top: 10px; cursor: pointer; }
+    .meta { color: #666; margin: 12px 0 18px; }
+    .item { padding: 12px 0; border-bottom: 1px solid #eee; }
+    .source { font-size: 12px; color: #999; }
+    a { text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .row { display: flex; gap: 10px; align-items: center; }
+    .row input { flex: 1; }
+  </style>
+</head>
+<body>
+  <h1>Daily News Brief</h1>
+  <p>Type keywords and get today’s headlines. Share the link with anyone.</p>
+
+  <div class="row">
+    <input id="q" placeholder="e.g. housing london rent" />
+    <button onclick="run()">Get brief</button>
+  </div>
+
+  <div class="meta" id="meta"></div>
+  <div id="results"></div>
+
+  <script>
+    function googleNewsRss(query) {
+      const q = encodeURIComponent(query.trim());
+      return `https://news.google.com/rss/search?q=${q}&hl=en-GB&gl=GB&ceid=GB:en`;
+    }
+
+    async function run() {
+      const q = document.getElementById("q").value.trim();
+      if (!q) return;
+
+      document.getElementById("meta").textContent = "Loading headlines...";
+      document.getElementById("results").innerHTML = "";
+
+      const rssUrl = googleNewsRss(q);
+      const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
+
+      const res = await fetch(apiUrl);
+      const data = await res.json();
+
+      if (!data.items) {
+        document.getElementById("meta").textContent =
+          "Could not load headlines. Try again in a minute.";
+        return;
+      }
+
+      const shareLink = `${location.origin + location.pathname}?q=${encodeURIComponent(q)}`;
+
+      document.getElementById("meta").innerHTML =
+        `Found <b>${data.items.length}</b> headlines<br>
+         Share link: <a hrefLink}${shareLink}</a>`;
+
+      const container = document.getElementById("results");
+      data.items.slice(0, 20).forEach(item => {
+        const div = document.createElement("div");
+        div.className = "item";
+        div.innerHTML = `
+          <div class="source">${new Date(item.pubDate).toLocaleString()}</div>
+          <div><a href="${item.link}" target="_blank       `;
+        container.appendChild(div);
+      });
+    }
+
+    const params = new URLSearchParams(location.search);
+    if (params.get("q")) {
+      document.getElementById("q").value = params.get("q");
+      run();
+    }
+  </script>
+</body>
+</html>
