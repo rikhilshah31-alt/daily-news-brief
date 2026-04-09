@@ -6,44 +6,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body { font-family: Arial, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 12px; color:#111; }
-    h1 { margin-bottom: 6px; }
-    p { margin-top: 0; color:#444; }
-    .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
-    input { flex: 1; padding: 12px; font-size: 16px; }
-    select { padding: 12px; font-size: 16px; }
-    button { padding: 12px 16px; font-size: 16px; cursor: pointer; }
-    .meta { color: #666; margin: 12px 0 18px; }
-    .item { padding: 14px 0; border-bottom: 1px solid #eee; }
-    .title a { color:#111; font-weight: 700; font-size: 16px; text-decoration: none; }
-    .title a:hover { text-decoration: underline; }
-    .sub { margin-top: 6px; font-size: 13px; color:#777; }
-    .desc { margin-top: 8px; color:#333; line-height: 1.35; }
-    .pill { display:inline-block; padding:2px 8px; border:1px solid #ddd; border-radius:999px; font-size:12px; color:#555; margin-right:6px; }
-    .err { color:#b00020; font-weight:600; }
+    .row { display:flex; gap:10px; align-items:center; margin:12px 0; }
+    input { flex:1; padding:12px; font-size:16px; }
+    button { padding:12px 16px; font-size:16px; cursor:pointer; }
+    .meta { color:#555; margin:10px 0 16px; }
+    .item { padding:14px 0; border-bottom:1px solid #eee; }
+    .date { font-size:12px; color:#777; margin-bottom:6px; }
+    .headline { font-size:16px; font-weight:700; color:#111; display:block; margin-bottom:6px; }
+    .headline a { color:#111 !important; text-decoration:none; }
+    .headline a:hover { text-decoration:underline; }
+    .snippet { color:#333; line-height:1.35; }
+    .debug { margin-top:18px; padding:12px; background:#fafafa; border:1px solid #eee; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; white-space:pre-wrap; }
+    .err { color:#b00020; font-weight:700; }
   </style>
 </head>
-
 <body>
   <h1>Daily News Brief</h1>
-  <p>Type keywords and get real headlines + a short snippet. Share the link with anyone.</p>
-
   <div class="row">
     <input id="q" placeholder="e.g. housing london rent" />
-    <select id="when">
-      <option value="1d">Last 24h</option>
-      <option value="7d">Last 7 days</option>
-      <option value="30d">Last 30 days</option>
-    </select>
     <button onclick="run()">Get brief</button>
   </div>
 
-  <div class="meta" id="meta"></div>
+  <div id="meta" class="meta"></div>
   <div id="results"></div>
 
+  <div id="debug" class="debug" style="display:none;"></div>
+
   <script>
-    // Google News RSS with time filter
-    function googleNewsRss(query, when) {
-      const q = encodeURIComponent(`${query.trim()} when:${when}`);
+    // Version tag so we can confirm the page updated
+    const VERSION = "v2-render-fix-09Apr2026";
+
+    function googleNewsRss(query) {
+      const q = encodeURIComponent(query.trim());
       return `https://news.google.com/rss/search?q=${q}&hl=en-GB&gl=GB&ceid=GB:en`;
     }
 
@@ -53,29 +47,21 @@
       return (tmp.textContent || tmp.innerText || "").trim();
     }
 
-    // Google News titles often look like: "Headline - Source"
-    function splitTitleAndSource(title) {
-      const parts = (title || "").split(" - ");
-      if (parts.length >= 2) {
-        const source = parts.pop();
-        const cleanTitle = parts.join(" - ");
-        return { cleanTitle, source };
-      }
-      return { cleanTitle: title || "", source: "" };
-    }
-
     async function run() {
       const q = document.getElementById("q").value.trim();
-      const when = document.getElementById("when").value;
-      if (!q) return;
-
       const meta = document.getElementById("meta");
       const results = document.getElementById("results");
+      const debug = document.getElementById("debug");
 
-      meta.textContent = "Loading news...";
       results.innerHTML = "";
+      debug.style.display = "none";
+      debug.textContent = "";
 
-      const rssUrl = googleNewsRss(q, when);
+      if (!q) return;
+
+      meta.textContent = `Loading… (${VERSION})`;
+
+      const rssUrl = googleNewsRss(q);
       const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
 
       let data;
@@ -83,46 +69,67 @@
         const res = await fetch(apiUrl);
         data = await res.json();
       } catch (e) {
-        meta.innerHTML = `<span class="err">Couldn’t load news (network error). Try again.</span>`;
+        meta.innerHTML = `<span class="err">Network error loading news.</span> (${VERSION})`;
         return;
       }
+
+      // Debug panel: show what we got back
+      debug.style.display = "block";
+      debug.textContent =
+        `DEBUG (${VERSION})\n` +
+        `Query: ${q}\n` +
+        `RSS: ${rssUrl}\n` +
+        `Items returned: ${data?.items?.length ?? 0}\n\n` +
+        `First item:\n${JSON.stringify(data?.items?.[0] ?? null, null, 2)}\n\n` +
+        `Second item:\n${JSON.stringify(data?.items?.[1] ?? null, null, 2)}\n`;
 
       if (!data || !data.items) {
-        meta.innerHTML = `<span class="err">Couldn’t load headlines (RSS service rate limit). Try again in 1–2 minutes.</span>`;
+        meta.innerHTML = `<span class="err">Couldn’t load headlines (rate limit). Try again in 1–2 minutes.</span> (${VERSION})`;
         return;
       }
 
-      const shareLink = `${location.origin + location.pathname}?q=${encodeURIComponent(q)}&when=${encodeURIComponent(when)}`;
+      meta.textContent = `Found ${data.items.length} headlines (${VERSION})`;
 
-      meta.innerHTML =
-        `Found <b>${data.items.length}</b> results • <span class="pill">${when}</span><br>
-         Share link: <a href="${shareLink}nk}</a>`;
-
-      data.items.slice(0, 25).forEach(item => {
-        const { cleanTitle, source } = splitTitleAndSource(item.title);
-        const desc = stripHtml(item.description);
-        const pub = item.pubDate ? new Date(item.pubDate).toLocaleString() : "";
-
+      data.items.slice(0, 20).forEach(item => {
         const div = document.createElement("div");
         div.className = "item";
-        div.innerHTML = `
-          <div class="title">
-            <a href="${item.link}" target="_blank" rel="noopener      </div>
-          <div class="sub">
-            ${source ? `<span class="pill">${source}</span>` : ""}
-            ${pub ? `Published: ${pub}` : ""}
-          </div>
-          ${desc ? `<div class="desc">${desc}</div>` : ""}
-        `;
+
+        const pub = item.pubDate ? new Date(item.pubDate).toLocaleString() : "";
+        const titleText = (item.title || "").trim() || "(No title returned)";
+        const snippetText = stripHtml(item.description || "");
+
+        // Build DOM safely (no innerHTML for title)
+        const date = document.createElement("div");
+        date.className = "date";
+        date.textContent = pub;
+
+        const headline = document.createElement("div");
+        headline.className = "headline";
+
+        const a = document.createElement("a");
+        a.href = item.link || "#";
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.textContent = titleText;
+
+        headline.appendChild(a);
+
+        const snippet = document.createElement("div");
+        snippet.className = "snippet";
+        snippet.textContent = snippetText;
+
+        div.appendChild(date);
+        div.appendChild(headline);
+        if (snippetText) div.appendChild(snippet);
+
         results.appendChild(div);
       });
     }
 
-    // Auto-run from shared links
+    // Auto-run from shared link
     const params = new URLSearchParams(location.search);
     if (params.get("q")) {
       document.getElementById("q").value = params.get("q");
-      if (params.get("when")) document.getElementById("when").value = params.get("when");
       run();
     }
   </script>
