@@ -1,40 +1,121 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <title>Daily News Brief</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { font-family: Arial, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 12px; color:#111; }
-    .row { display:flex; gap:10px; align-items:center; margin:12px 0; }
-    input { flex:1; padding:12px; font-size:16px; }
-    button { padding:12px 16px; font-size:16px; cursor:pointer; }
-    .meta { color:#555; margin:10px 0 16px; }
+    body { font-family: Arial, sans-serif; max-width: 980px; margin: 24px auto; padding: 0 12px; color:#111; }
+    header { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap; }
+    h1 { margin: 0; }
+    nav a { color:#111; text-decoration:none; font-weight:700; }
+    nav a:hover { text-decoration:underline; }
+
+    .card { background:#fff; border:1px solid #eee; border-radius:12px; padding:14px; box-shadow: 0 1px 6px rgba(0,0,0,0.04); margin: 14px 0; }
+    .row { display:flex; gap:10px; align-items:center; margin:12px 0; flex-wrap:wrap; }
+    input[type="text"] { flex:1; min-width: 240px; padding:12px; font-size:16px; border:1px solid #ddd; border-radius:10px; }
+    button { padding:12px 16px; font-size:16px; cursor:pointer; border:1px solid #ddd; border-radius:10px; background:#f7f7f7; }
+    button.primary { background:#111; color:#fff; border-color:#111; }
+    button:disabled { opacity:0.5; cursor:not-allowed; }
+
+    .meta { color:#555; margin:10px 0 2px; }
+    .small { font-size:12px; color:#666; }
+    .err { color:#b00020; font-weight:700; }
+
+    .saved-list { display:grid; grid-template-columns: 1fr; gap:8px; margin-top:10px; }
+    .saved-item { display:flex; align-items:center; gap:10px; padding:10px; border:1px solid #eee; border-radius:10px; }
+    .saved-item label { display:flex; align-items:center; gap:10px; cursor:pointer; width:100%; }
+    .badge { font-size:12px; color:#444; background:#f2f2f2; border:1px solid #e8e8e8; padding:2px 8px; border-radius:999px; }
+    .query { color:#666; font-size:13px; }
+
+    .section-title { font-weight:800; margin: 8px 0 0; }
     .item { padding:14px 0; border-bottom:1px solid #eee; }
     .date { font-size:12px; color:#777; margin-bottom:6px; }
     .headline { font-size:16px; font-weight:700; color:#111; display:block; margin-bottom:6px; }
     .headline a { color:#111 !important; text-decoration:none; }
     .headline a:hover { text-decoration:underline; }
     .snippet { color:#333; line-height:1.35; }
-    .debug { margin-top:18px; padding:12px; background:#fafafa; border:1px solid #eee; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; white-space:pre-wrap; }
-    .err { color:#b00020; font-weight:700; }
+
+    .debug { margin-top:18px; padding:12px; background:#fafafa; border:1px solid #eee; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; white-space:pre-wrap; border-radius:10px; }
+    .divider { height:1px; background:#eee; margin:12px 0; }
   </style>
 </head>
 <body>
-  <h1>Daily News Brief</h1>
-  <div class="row">
-    <input id="q" placeholder="e.g. housing london rent" />
-    <button onclick="run()">Get brief</button>
+  <header>
+    <div>
+      <h1>Daily News Brief</h1>
+      <div class="small" id="versionTag"></div>
+    </div>
+    <nav>
+      <a href="settings.html">⚙️ Manage saved topics</a>
+    </nav>
+  </header>
+
+  <div class="card">
+    <div class="section-title">Saved topics (tick what you want)</div>
+    <div class="row">
+      <button class="primary" id="runSelectedBtn" onclick="runSelected()">Get brief</button>
+      <button onclick="selectAll()">Select all</button>
+      <button onclick="clearAll()">Clear all</button>
+      <span class="small" id="savedCount"></span>
+    </div>
+    <div id="savedList" class="saved-list"></div>
+
+    <div class="divider"></div>
+
+    <div class="section-title">Adhoc search</div>
+    <div class="row">
+      <input id="adhoc" type="text" placeholder="e.g. uk social housing funding" />
+      <button onclick="runAdhoc()">Search</button>
+      <button onclick="openSettingsWithAdhoc()">Save adhoc →</button>
+    </div>
+    <div class="small">Tip: Use “Save adhoc →” to add this as one of your 10 stored topics.</div>
   </div>
 
   <div id="meta" class="meta"></div>
   <div id="results"></div>
 
-  <div id="debug" class="debug" style="display:none;"></div>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <div class="small">If you hit rate limits, wait 1–2 minutes and try fewer topics at once.</div>
+      <button onclick="toggleDebug()">Toggle debug</button>
+    </div>
+    <div id="debug" class="debug" style="display:none;"></div>
+  </div>
 
   <script>
-    // Version tag so we can confirm the page updated
-    const VERSION = "v2-render-fix-09Apr2026";
+    const VERSION = "v3-two-pages-saved-topics-13Apr2026";
+    const STORAGE_KEY = "dnb:savedQueries";
+
+    // ---------- Storage ----------
+    function defaultSlots() {
+      // Sensible starter set (you can overwrite in settings)
+      return Array.from({length: 10}, (_, i) => ({
+        id: i,
+        label: "",
+        query: ""
+      }));
+    }
+
+    function loadSlots() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return defaultSlots();
+        const parsed = JSON.parse(raw);
+        // Normalize to exactly 10 slots
+        const slots = defaultSlots();
+        (parsed || []).slice(0, 10).forEach((s, i) => {
+          slots[i] = {
+            id: i,
+            label: (s?.label ?? "").toString(),
+            query: (s?.query ?? "").toString()
+          };
+        });
+        return slots;
+      } catch {
+        return defaultSlots();
+      }
+    }
 
     function googleNewsRss(query) {
       const q = encodeURIComponent(query.trim());
@@ -47,50 +128,153 @@
       return (tmp.textContent || tmp.innerText || "").trim();
     }
 
-    async function run() {
-      const q = document.getElementById("q").value.trim();
-      const meta = document.getElementById("meta");
-      const results = document.getElementById("results");
-      const debug = document.getElementById("debug");
-
-      results.innerHTML = "";
-      debug.style.display = "none";
-      debug.textContent = "";
-
-      if (!q) return;
-
-      meta.textContent = `Loading… (${VERSION})`;
-
-      const rssUrl = googleNewsRss(q);
+    async function fetchFeed(query) {
+      const rssUrl = googleNewsRss(query);
       const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
 
-      let data;
-      try {
-        const res = await fetch(apiUrl);
-        data = await res.json();
-      } catch (e) {
-        meta.innerHTML = `<span class="err">Network error loading news.</span> (${VERSION})`;
+      const res = await fetch(apiUrl);
+      const data = await res.json();
+      return { query, rssUrl, apiUrl, data };
+    }
+
+    function setMeta(text, isError=false) {
+      const meta = document.getElementById("meta");
+      meta.innerHTML = isError ? `<span class="err">${text}</span> (${VERSION})` : `${text} (${VERSION})`;
+    }
+
+    function addDebug(block) {
+      const debug = document.getElementById("debug");
+      debug.textContent += block + "\n\n";
+    }
+
+    function toggleDebug() {
+      const debug = document.getElementById("debug");
+      debug.style.display = (debug.style.display === "none") ? "block" : "none";
+    }
+
+    function renderSavedList() {
+      const slots = loadSlots();
+      const list = document.getElementById("savedList");
+      list.innerHTML = "";
+
+      const filled = slots.filter(s => (s.query || "").trim().length > 0);
+
+      document.getElementById("savedCount").textContent =
+        filled.length ? `${filled.length} saved topic(s) available` : "No saved topics yet — add some in Settings.";
+
+      if (!filled.length) {
+        const empty = document.createElement("div");
+        empty.className = "small";
+        empty.innerHTML = `You haven’t saved anything yet. Go to <a href="settings.html/a> to add up to 10.`;
+        list.appendChild(empty);
         return;
       }
 
-      // Debug panel: show what we got back
-      debug.style.display = "block";
-      debug.textContent =
-        `DEBUG (${VERSION})\n` +
-        `Query: ${q}\n` +
-        `RSS: ${rssUrl}\n` +
-        `Items returned: ${data?.items?.length ?? 0}\n\n` +
-        `First item:\n${JSON.stringify(data?.items?.[0] ?? null, null, 2)}\n\n` +
-        `Second item:\n${JSON.stringify(data?.items?.[1] ?? null, null, 2)}\n`;
+      filled.forEach(s => {
+        const row = document.createElement("div");
+        row.className = "saved-item";
 
-      if (!data || !data.items) {
-        meta.innerHTML = `<span class="err">Couldn’t load headlines (rate limit). Try again in 1–2 minutes.</span> (${VERSION})`;
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "pick";
+        cb.dataset.id = s.id;
+
+        const label = document.createElement("label");
+        label.appendChild(cb);
+
+        const textWrap = document.createElement("div");
+        const line1 = document.createElement("div");
+        line1.style.display = "flex";
+        line1.style.gap = "8px";
+        line1.style.alignItems = "center";
+
+        const title = document.createElement("div");
+        title.style.fontWeight = "800";
+        title.textContent = s.label?.trim() ? s.label.trim() : `Topic ${s.id + 1}`;
+
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = `#${s.id + 1}`;
+
+        line1.appendChild(title);
+        line1.appendChild(badge);
+
+        const q = document.createElement("div");
+        q.className = "query";
+        q.textContent = s.query;
+
+        textWrap.appendChild(line1);
+        textWrap.appendChild(q);
+
+        label.appendChild(textWrap);
+        row.appendChild(label);
+        list.appendChild(row);
+      });
+    }
+
+    function selectAll() {
+      document.querySelectorAll(".pick").forEach(cb => cb.checked = true);
+    }
+    function clearAll() {
+      document.querySelectorAll(".pick").forEach(cb => cb.checked = false);
+    }
+
+    function getSelectedQueries() {
+      const slots = loadSlots();
+      const pickedIds = Array.from(document.querySelectorAll(".pick"))
+        .filter(cb => cb.checked)
+        .map(cb => Number(cb.dataset.id));
+
+      const selected = pickedIds
+        .map(id => slots[id])
+        .filter(s => s && (s.query || "").trim().length > 0)
+        .map(s => ({ label: (s.label || "").trim() || `Topic ${s.id + 1}`, query: s.query.trim(), id: s.id }));
+
+      return selected;
+    }
+
+    function openSettingsWithAdhoc() {
+      const adhoc = document.getElementById("adhoc").value.trim();
+      if (!adhoc) return;
+      // settings page supports ?prefill=...
+      location.href = `settings.html?prefill=${encodeURIComponent(adhoc)}`;
+    }
+
+    // ---------- Rendering results grouped by query ----------
+    function clearResults() {
+      document.getElementById("results").innerHTML = "";
+      document.getElementById("debug").textContent = "";
+    }
+
+    function renderGroupHeader(container, label, query) {
+      const h = document.createElement("div");
+      h.className = "card";
+      const t = document.createElement("div");
+      t.className = "section-title";
+      t.textContent = label;
+      const q = document.createElement("div");
+      q.className = "small";
+      q.textContent = `Query: ${query}`;
+      h.appendChild(t);
+      h.appendChild(q);
+      container.appendChild(h);
+      return h;
+    }
+
+    function renderItems(container, items, limit=20) {
+      const wrap = document.createElement("div");
+      wrap.className = "card";
+
+      if (!items || !items.length) {
+        const none = document.createElement("div");
+        none.className = "small";
+        none.textContent = "No items returned.";
+        wrap.appendChild(none);
+        container.appendChild(wrap);
         return;
       }
 
-      meta.textContent = `Found ${data.items.length} headlines (${VERSION})`;
-
-      data.items.slice(0, 20).forEach(item => {
+      items.slice(0, limit).forEach(item => {
         const div = document.createElement("div");
         div.className = "item";
 
@@ -98,7 +282,6 @@
         const titleText = (item.title || "").trim() || "(No title returned)";
         const snippetText = stripHtml(item.description || "");
 
-        // Build DOM safely (no innerHTML for title)
         const date = document.createElement("div");
         date.className = "date";
         date.textContent = pub;
@@ -122,17 +305,40 @@
         div.appendChild(headline);
         if (snippetText) div.appendChild(snippet);
 
-        results.appendChild(div);
+        wrap.appendChild(div);
       });
+
+      container.appendChild(wrap);
     }
 
-    // Auto-run from shared link
-    const params = new URLSearchParams(location.search);
-    if (params.get("q")) {
-      document.getElementById("q").value = params.get("q");
-      run();
-    }
-  </script>
-</body>
-</html>
-``
+    // ---------- Run logic ----------
+    async function runSelected() {
+      const selected = getSelectedQueries();
+      const results = document.getElementById("results");
+      const btn = document.getElementById("runSelectedBtn");
+
+      clearResults();
+
+      if (!selected.length) {
+        setMeta("Tick at least one saved topic, or use Adhoc search.", true);
+        return;
+      }
+
+      btn.disabled = true;
+      setMeta(`Loading ${selected.length} topic(s)…`);
+
+      // Sequential fetching reduces the chance of hitting rate limits
+      let totalItems = 0;
+      for (let i = 0; i < selected.length; i++) {
+        const { label, query } = selected[i];
+        setMeta(`Loading (${i+1}/${selected.length}) — ${label}`);
+
+        try {
+          const out = await fetchFeed(query);
+          const items = out?.data?.items;
+
+          addDebug(
+            `TOPIC: ${label}\n` +
+            `Query: ${query}\n` +
+            `RSS: ${out.rssUrl}\n` +
+            `Items: ${items?.length ?? 0}\n` +
