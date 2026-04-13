@@ -342,3 +342,104 @@
             `Query: ${query}\n` +
             `RSS: ${out.rssUrl}\n` +
             `Items: ${items?.length ?? 0}\n` +
+            `First: ${JSON.stringify(items?.[0] ?? null, null, 2)}`
+          );
+
+          renderGroupHeader(results, label, query);
+
+          if (!out.data || !out.data.items) {
+            const errCard = document.createElement("div");
+            errCard.className = "card";
+            errCard.innerHTML = `<span class="err">Couldn’t load headlines (rate limit). Try again in 1–2 minutes.</span>`;
+            results.appendChild(errCard);
+          } else {
+            totalItems += out.data.items.length;
+            renderItems(results, out.data.items, 20);
+          }
+        } catch (e) {
+          renderGroupHeader(results, label, query);
+          const errCard = document.createElement("div");
+          errCard.className = "card";
+          errCard.innerHTML = `<span class="err">Network error loading this topic.</span>`;
+          results.appendChild(errCard);
+        }
+      }
+
+      setMeta(`Done — loaded ${selected.length} topic(s). Total headlines returned: ${totalItems}`);
+      btn.disabled = false;
+    }
+
+    async function runAdhoc() {
+      const q = document.getElementById("adhoc").value.trim();
+      const results = document.getElementById("results");
+
+      clearResults();
+
+      if (!q) {
+        setMeta("Type an adhoc query first.", true);
+        return;
+      }
+
+      setMeta("Loading adhoc…");
+
+      try {
+        const out = await fetchFeed(q);
+        const items = out?.data?.items;
+
+        addDebug(
+          `ADHOC\n` +
+          `Query: ${q}\n` +
+          `RSS: ${out.rssUrl}\n` +
+          `Items: ${items?.length ?? 0}\n` +
+          `First: ${JSON.stringify(items?.[0] ?? null, null, 2)}`
+        );
+
+        renderGroupHeader(results, "Adhoc", q);
+
+        if (!out.data || !out.data.items) {
+          setMeta("Couldn’t load headlines (rate limit). Try again in 1–2 minutes.", true);
+          const errCard = document.createElement("div");
+          errCard.className = "card";
+          errCard.innerHTML = `<span class="err">Couldn’t load headlines (rate limit). Try again in 1–2 minutes.</span>`;
+          results.appendChild(errCard);
+          return;
+        }
+
+        setMeta(`Found ${out.data.items.length} headlines`);
+        renderItems(results, out.data.items, 20);
+      } catch (e) {
+        setMeta("Network error loading news.", true);
+      }
+    }
+
+    // ---------- Startup ----------
+    document.getElementById("versionTag").textContent = `Build: ${VERSION}`;
+
+    renderSavedList();
+
+    // Optional: support bookmarks like:
+    // index.html?pick=0,2,4  (auto-select & run)
+    // index.html?adhoc=foo   (run adhoc)
+    const params = new URLSearchParams(location.search);
+
+    const pick = params.get("pick");
+    if (pick) {
+      const ids = pick.split(",").map(x => Number(x.trim())).filter(n => Number.isFinite(n));
+      setTimeout(() => {
+        document.querySelectorAll(".pick").forEach(cb => {
+          const id = Number(cb.dataset.id);
+          cb.checked = ids.includes(id);
+        });
+        runSelected();
+      }, 0);
+    }
+
+    const adhocParam = params.get("adhoc");
+    if (adhocParam) {
+      document.getElementById("adhoc").value = adhocParam;
+      setTimeout(runAdhoc, 0);
+    }
+  </script>
+</body>
+</html>
+``
