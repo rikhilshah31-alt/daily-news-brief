@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Manage Saved Topics</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 980px; margin: 24px auto; padding: 0 12px; color:#111; }
+    header { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap; }
+    h1 { margin: 0; }
+    nav a { color:#111; text-decoration:none; font-weight:700; }
+    nav a:hover { text-decoration:underline; }
+
+    .card { background:#fff; border:1px solid #eee; border-radius:12px; padding:14px; box-shadow: 0 1px 6px rgba(0,0,0,0.04); margin: 14px 0; }
+    .row { display:flex; gap:10px; align-items:center; margin:10px 0; flex-wrap:wrap; }
+    input[type="text"] { padding:10px; font-size:14px; border:1px solid #ddd; border-radius:10px; width: 100%; }
+    button { padding:12px 16px; font-size:16px; cursor:pointer; border:1px solid #ddd; border-radius:10px; background:#f7f7f7; }
+    button.primary { background:#111; color:#fff; border-color:#111; }
+    .small { font-size:12px; color:#666; }
+    .err { color:#b00020; font-weight:700; }
+    .ok { color:#0a7b34; font-weight:700; }
+
+    .grid { display:grid; grid-template-columns: 70px 1fr 1.5fr; gap:10px; align-items:center; }
+    .head { font-weight:800; color:#333; font-size:12px; text-transform:uppercase; letter-spacing:0.04em; }
+    .slot { font-weight:800; }
+    .hint { color:#777; font-size:12px; }
+
+    .banner { padding:10px; border-radius:10px; background:#fff8e6; border:1px solid #ffe1a3; }
+    .divider { height:1px; background:#eee; margin:12px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Manage Saved Topics</h1>
+      <div class="small" id="versionTag"></div>
+    </div>
+    <nav>
+      <a href="index.html">← Back to briefs</a>
+    </nav>
+  </header>
+
+  <div id="prefillBanner" class="card banner" style="display:none;">
+    <div style="font-weight:800;">Prefill detected</div>
+    <div class="small" id="prefillText"></div>
+    <div class="row">
+      <button class="primary" onclick="prefillFirstEmpty()">Add to first empty slot</button>
+      <button onclick="dismissPrefill()">Dismiss</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="small">
+      You can store up to <b>10</b> topics (label + query). These are saved in your browser (localStorage).
+      If you open this site on another device/browser, you’ll need to set them again there.
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="grid head">
+      <div>Slot</div>
+      <div>Label (what you see)</div>
+      <div>Query (what we search)</div>
+    </div>
+
+    <div id="slots"></div>
+
+    <div class="row">
+      <button class="primary" onclick="save()">Save changes</button>
+      <button onclick="clearAll()">Clear all</button>
+      <button onclick="resetDefaults()">Reset (blank)</button>
+      <span id="status" class="small"></span>
+    </div>
+
+    <div class="small">
+      Tip: Keep queries short and specific (e.g., <i>“uk social housing funding”</i>, <i>“London private rent ONS”</i>, <i>“Building safety remediation UK”</i>).
+    </div>
+  </div>
+
+  <script>
+    const VERSION = "v3-two-pages-saved-topics-13Apr2026";
+    const STORAGE_KEY = "dnb:savedQueries";
+
+    function defaultSlots() {
+      return Array.from({length: 10}, (_, i) => ({ id: i, label: "", query: "" }));
+    }
+
+    function loadSlots() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return defaultSlots();
+        const parsed = JSON.parse(raw);
+        const slots = defaultSlots();
+        (parsed || []).slice(0, 10).forEach((s, i) => {
+          slots[i] = {
+            id: i,
+            label: (s?.label ?? "").toString(),
+            query: (s?.query ?? "").toString()
+          };
+        });
+        return slots;
+      } catch {
+        return defaultSlots();
+      }
+    }
+
+    function saveSlots(slots) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(slots.slice(0,10)));
+    }
+
+    function render() {
+      const slots = loadSlots();
+      const wrap = document.getElementById("slots");
+      wrap.innerHTML = "";
+
+      slots.forEach(s => {
+        const row = document.createElement("div");
+        row.className = "grid";
+        row.style.margin = "10px 0";
+
+        const slot = document.createElement("div");
+        slot.className = "slot";
+        slot.textContent = `#${s.id + 1}`;
+
+        const label = document.createElement("div");
+        const labelInput = document.createElement("input");
+        labelInput.type = "text";
+        labelInput.placeholder = `e.g. UK Housing`;
+        labelInput.value = s.label || "";
+        labelInput.dataset.kind = "label";
+        labelInput.dataset.id = s.id;
+        label.appendChild(labelInput);
+
+        const query = document.createElement("div");
+        const queryInput = document.createElement("input");
+        queryInput.type = "text";
+        queryInput.placeholder = `e.g. social housing rent cap`;
+        queryInput.value = s.query || "";
+        queryInput.dataset.kind = "query";
+        queryInput.dataset.id = s.id;
+        query.appendChild(queryInput);
+
+        row.appendChild(slot);
+        row.appendChild(label);
+        row.appendChild(query);
+        wrap.appendChild(row);
+      });
+    }
+
+    function setStatus(msg, kind="") {
+      const el = document.getElementById("status");
+      el.className = "small " + (kind === "ok" ? "ok" : kind === "err" ? "err" : "");
+      el.textContent = msg;
+      if (msg) setTimeout(() => { el.textContent = ""; el.className="small"; }, 2500);
+    }
+
+    function collect() {
+      const slots = defaultSlots();
+      document.querySelectorAll('input[data-kind="label"]').forEach(inp => {
+        const id = Number(inp.dataset.id);
+        slots[id].label = inp.value.trim().slice(0, 60);
+      });
+      document.querySelectorAll('input[data-kind="query"]').forEach(inp => {
+        const id = Number(inp.dataset.id);
+        slots[id].query = inp.value.trim().slice(0, 200);
+      });
+      return slots;
+    }
+
+    function save() {
+      const slots = collect();
+      saveSlots(slots);
+      setStatus("Saved.", "ok");
+    }
+
+    function clearAll() {
+      const slots = defaultSlots();
+      saveSlots(slots);
+      render();
+      setStatus("Cleared all slots.", "ok");
+    }
+
+    function resetDefaults() {
+      // same as blank reset here
+      clearAll();
+    }
+
+    // ----- Prefill support from index page -----
+    // settings.html?prefill=some%20query
+    let PREFILL = "";
+    function initPrefill() {
+      const params = new URLSearchParams(location.search);
+      const prefill = (params.get("prefill") || "").trim();
+      if (!prefill) return;
+
+      PREFILL = prefill;
+      const banner = document.getElementById("prefillBanner");
+      const text = document.getElementById("prefillText");
+      banner.style.display = "block";
+      text.textContent = `Query to add: “${prefill}”`;
+    }
+
+    function dismissPrefill() {
+      PREFILL = "";
+      document.getElementById("prefillBanner").style.display = "none";
+    }
+
+    function prefillFirstEmpty() {
+      if (!PREFILL) return;
+
+      // Find first empty query slot
+      const queryInputs = Array.from(document.querySelectorAll('input[data-kind="query"]'));
+      const empty = queryInputs.find(inp => !inp.value.trim());
+      if (!empty) {
+        setStatus("No empty slots — clear one first.", "err");
+        return;
+      }
+
+      empty.value = PREFILL;
+      // Suggest a label from the query
+      const id = empty.dataset.id;
+      const labelInput = document.querySelector(`input[data-kind="label"][data-id="${id}"]`);
+      if (labelInput && !labelInput.value.trim()) {
+        labelInput.value = PREFILL.split(" ").slice(0, 3).join(" ");
+      }
+
+      save();
+      dismissPrefill();
+    }
+
+    // Startup
+    document.getElementById("versionTag").textContent = `Build: ${VERSION}`;
+    render();
+    initPrefill();
+  </script>
+</body>
+</html>
+``
